@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import json
 
 # File paths
 PROBLEMS_FILE = 'problems.csv'
@@ -64,6 +65,32 @@ def main():
     # Initialize ratings storage in session state
     if 'ratings' not in st.session_state:
         st.session_state.ratings = {}
+
+    # Allow uploading previous ratings to resume
+    if len(st.session_state.ratings) == 0:
+        st.sidebar.markdown("### Resume Previous Session")
+        uploaded_file = st.sidebar.file_uploader(
+            "Upload your previous ratings CSV to resume:",
+            type=['csv'],
+            help="If you lost progress, upload your last downloaded CSV to continue"
+        )
+        if uploaded_file is not None:
+            try:
+                resume_df = pd.read_csv(uploaded_file)
+                # Load ratings into session state
+                for _, row in resume_df.iterrows():
+                    if row['rater_id'] == rater_id:
+                        st.session_state.ratings[int(row['problem_index'])] = int(row['rating'])
+                st.sidebar.success(f"✅ Loaded {len(st.session_state.ratings)} previous ratings!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Error loading file: {e}")
+
+    # Warning about session storage and periodic reminders
+    if num_rated == 0:
+        st.sidebar.warning("⚠️ **Important:** Download your ratings regularly! If the app refreshes, you'll lose unsaved progress.")
+    elif num_rated > 0 and num_rated % 20 == 0:
+        st.sidebar.info(f"💾 You've rated {num_rated} problems. Consider downloading your CSV as a backup!")
 
     # Get assignment for this rater
     assignment = RATER_ASSIGNMENTS[rater_id]
