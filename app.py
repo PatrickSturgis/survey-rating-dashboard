@@ -66,6 +66,20 @@ def main():
     if 'ratings' not in st.session_state:
         st.session_state.ratings = {}
 
+    # Get assignment for this rater
+    assignment = RATER_ASSIGNMENTS[rater_id]
+    half_point = total_problems // 2
+
+    if assignment == "first_half":
+        assigned_problems = list(range(0, half_point))
+        st.sidebar.info(f"📋 You are assigned problems 1-{half_point} (first half)")
+    elif assignment == "second_half":
+        assigned_problems = list(range(half_point, total_problems))
+        st.sidebar.info(f"📋 You are assigned problems {half_point + 1}-{total_problems} (second half)")
+    else:  # "all"
+        assigned_problems = list(range(0, total_problems))
+        st.sidebar.info(f"📋 You are assigned ALL problems (1-{total_problems})")
+
     # Allow uploading previous ratings to resume
     if len(st.session_state.ratings) == 0:
         st.sidebar.markdown("### Resume Previous Session")
@@ -86,26 +100,6 @@ def main():
             except Exception as e:
                 st.sidebar.error(f"Error loading file: {e}")
 
-    # Warning about session storage and periodic reminders
-    if num_rated == 0:
-        st.sidebar.warning("⚠️ **Important:** Download your ratings regularly! If the app refreshes, you'll lose unsaved progress.")
-    elif num_rated > 0 and num_rated % 20 == 0:
-        st.sidebar.info(f"💾 You've rated {num_rated} problems. Consider downloading your CSV as a backup!")
-
-    # Get assignment for this rater
-    assignment = RATER_ASSIGNMENTS[rater_id]
-    half_point = total_problems // 2
-
-    if assignment == "first_half":
-        assigned_problems = list(range(0, half_point))
-        st.sidebar.info(f"📋 You are assigned problems 1-{half_point} (first half)")
-    elif assignment == "second_half":
-        assigned_problems = list(range(half_point, total_problems))
-        st.sidebar.info(f"📋 You are assigned problems {half_point + 1}-{total_problems} (second half)")
-    else:  # "all"
-        assigned_problems = list(range(0, total_problems))
-        st.sidebar.info(f"📋 You are assigned ALL problems (1-{total_problems})")
-
     # Initialize current problem index
     if 'current_index' not in st.session_state:
         st.session_state.current_index = assigned_problems[0]
@@ -117,6 +111,12 @@ def main():
     # Progress tracking
     num_rated = len([p for p in assigned_problems if p in st.session_state.ratings])
     num_assigned = len(assigned_problems)
+
+    # Warning about session storage and periodic reminders
+    if num_rated == 0:
+        st.sidebar.warning("⚠️ **Important:** Download your ratings regularly! If the app refreshes, you'll lose unsaved progress.")
+    elif num_rated > 0 and num_rated % 20 == 0:
+        st.sidebar.info(f"💾 You've rated {num_rated} problems. Consider downloading your CSV as a backup!")
 
     # Navigation
     st.sidebar.subheader("Navigation")
