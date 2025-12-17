@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-Survey Problem Rating Dashboard - Google Sheets Version
+Survey Problem Rating Dashboard - Session State Version
 
-Allows human experts to rate the severity of identified survey problems.
-Stores ratings in Google Sheets for multi-user access.
+Stores ratings in browser session, raters download their CSV when done.
 """
 
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-import gspread
-from google.oauth2.service_account import Credentials
+from datetime import datetime
 
 # File paths
 PROBLEMS_FILE = 'problems.csv'
@@ -24,120 +22,9 @@ RATING_SCALE = {
     5: "Very significant problem, modification essential"
 }
 
-@st.cache_resource
-def init_gsheet():
-    """Initialize Google Sheets connection"""
-    try:
-        # Check if secrets are configured
-        if "gcp_service_account" not in st.secrets:
-            st.error("Google Sheets credentials not found. Please configure secrets in Streamlit Cloud.")
-            return None
-
-        if "google_sheets" not in st.secrets:
-            st.error("Google Sheets URL not found. Please configure secrets in Streamlit Cloud.")
-            return None
-
-        # Get credentials from Streamlit secrets
-        credentials = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-            ]
-        )
-
-        client = gspread.authorize(credentials)
-
-        # Open the spreadsheet by URL from secrets
-        sheet = client.open_by_url(st.secrets["google_sheets"]["spreadsheet_url"])
-        worksheet = sheet.worksheet("Ratings")
-
-        return worksheet
-    except KeyError as e:
-        st.error(f"Missing configuration in secrets: {e}")
-        st.info("Please ensure both 'gcp_service_account' and 'google_sheets' are configured in Streamlit secrets.")
-        return None
-    except Exception as e:
-        st.error(f"Error connecting to Google Sheets: {e}")
-        st.info("Please check your Google Sheets setup and credentials.")
-        return None
-
 def load_problems():
     """Load the problems CSV"""
-    try:
-        return pd.read_csv(PROBLEMS_FILE)
-    except FileNotFoundError:
-        st.error(f"Cannot find problems file at: {PROBLEMS_FILE}")
-        st.info(f"Current working directory: {Path.cwd()}")
-        st.info(f"Files in current directory: {list(Path.cwd().iterdir())}")
-        st.stop()
-    except Exception as e:
-        st.error(f"Error loading problems: {e}")
-        st.stop()
-
-def load_ratings():
-    """Load existing ratings from Google Sheet"""
-    try:
-        worksheet = init_gsheet()
-        if worksheet is None:
-            return pd.DataFrame(columns=['problem_index', 'question_id', 'rating', 'rater_id'])
-
-        # Get all values
-        data = worksheet.get_all_records()
-
-        if not data:
-            return pd.DataFrame(columns=['problem_index', 'question_id', 'rating', 'rater_id'])
-
-        df = pd.DataFrame(data)
-
-        # Ensure correct data types
-        if 'problem_index' in df.columns:
-            df['problem_index'] = pd.to_numeric(df['problem_index'], errors='coerce')
-        if 'rating' in df.columns:
-            df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
-
-        return df
-    except Exception as e:
-        st.error(f"Error loading ratings: {e}")
-        return pd.DataFrame(columns=['problem_index', 'question_id', 'rating', 'rater_id'])
-
-def save_rating(problem_index, question_id, rating, rater_id):
-    """Save a rating to Google Sheet"""
-    try:
-        worksheet = init_gsheet()
-        if worksheet is None:
-            st.error("Cannot save - Google Sheets not connected")
-            return None
-
-        # Load current data
-        ratings_df = load_ratings()
-
-        # Check if this problem has already been rated by this rater
-        mask = (ratings_df['problem_index'] == problem_index) & (ratings_df['rater_id'] == rater_id)
-
-        if mask.any():
-            # Update existing rating - find row number
-            row_idx = ratings_df[mask].index[0]
-            row_num = row_idx + 2  # +2 because sheets are 1-indexed and have header row
-
-            worksheet.update(f'C{row_num}', [[rating]])
-        else:
-            # Add new rating
-            worksheet.append_row([problem_index, question_id, rating, rater_id])
-
-        return load_ratings()
-
-    except Exception as e:
-        st.error(f"Error saving rating: {e}")
-        return None
-
-def get_rating_for_problem(problem_index, rater_id):
-    """Get existing rating for a problem by this rater"""
-    ratings_df = load_ratings()
-    mask = (ratings_df['problem_index'] == problem_index) & (ratings_df['rater_id'] == rater_id)
-
-    if mask.any():
-        return int(ratings_df.loc[mask, 'rating'].values[0])
-    return None
+    return pd.read_csv(PROBLEMS_FILE)
 
 def main():
     st.set_page_config(page_title="Survey Problem Rating", layout="wide")
@@ -150,9 +37,6 @@ def main():
     st.sidebar.title("Rating Dashboard")
 
     # Rater assignment
-    # Group 1: First half of problems (0-58)
-    # Group 2: Second half of problems (59-117)
-    # Patrick: All problems (0-117)
     RATER_ASSIGNMENTS = {
         "Tom": "first_half",
         "Caroline": "first_half",
@@ -168,7 +52,6 @@ def main():
     rater_id = st.sidebar.selectbox(
         "Select your name:",
         options=[""] + list(RATER_ASSIGNMENTS.keys()),
-        index=0 if st.session_state.rater_id == "" else list(RATER_ASSIGNMENTS.keys()).index(st.session_state.rater_id) + 1 if st.session_state.rater_id in RATER_ASSIGNMENTS else 0,
         help="Select your name to begin rating your assigned problems"
     )
 
@@ -177,6 +60,10 @@ def main():
     else:
         st.warning("⚠️ Please select your name in the sidebar to begin rating.")
         return
+
+    # Initialize ratings storage in session state
+    if 'ratings' not in st.session_state:
+        st.session_state.ratings = {}
 
     # Get assignment for this rater
     assignment = RATER_ASSIGNMENTS[rater_id]
@@ -192,7 +79,7 @@ def main():
         assigned_problems = list(range(0, total_problems))
         st.sidebar.info(f"📋 You are assigned ALL problems (1-{total_problems})")
 
-    # Initialize current problem index to start of assigned problems
+    # Initialize current problem index
     if 'current_index' not in st.session_state:
         st.session_state.current_index = assigned_problems[0]
 
@@ -200,21 +87,14 @@ def main():
     if st.session_state.current_index not in assigned_problems:
         st.session_state.current_index = assigned_problems[0]
 
-    # Progress tracking (only for assigned problems)
-    ratings_df = load_ratings()
-    if len(ratings_df) > 0:
-        rater_ratings = ratings_df[(ratings_df['rater_id'] == rater_id) &
-                                   (ratings_df['problem_index'].isin(assigned_problems))]
-        num_rated = len(rater_ratings)
-    else:
-        num_rated = 0
-
+    # Progress tracking
+    num_rated = len([p for p in assigned_problems if p in st.session_state.ratings])
     num_assigned = len(assigned_problems)
 
     # Navigation
     st.sidebar.subheader("Navigation")
 
-    # Jump to problem (within assigned range)
+    # Jump to problem
     min_problem = assigned_problems[0] + 1
     max_problem = assigned_problems[-1] + 1
     current_problem_num = st.session_state.current_index + 1
@@ -232,35 +112,58 @@ def main():
     # Show unrated problems only toggle
     show_unrated_only = st.sidebar.checkbox("Show unrated problems only")
 
-    # Filter to unrated problems if requested (within assigned problems)
+    # Filter to unrated problems if requested
     if show_unrated_only:
-        unrated_indices = [i for i in assigned_problems
-                          if get_rating_for_problem(i, rater_id) is None]
+        unrated_indices = [i for i in assigned_problems if i not in st.session_state.ratings]
         if unrated_indices:
             if st.session_state.current_index not in unrated_indices:
                 st.session_state.current_index = unrated_indices[0]
         else:
             st.success(f"🎉 All your assigned problems have been rated! ({num_assigned} problems)")
+            st.info("👇 Download your ratings below!")
+
+            # Show download button
+            ratings_list = []
+            for prob_idx in assigned_problems:
+                if prob_idx in st.session_state.ratings:
+                    problem = problems_df.iloc[prob_idx]
+                    ratings_list.append({
+                        'problem_index': prob_idx,
+                        'question_id': problem['question_id'],
+                        'rating': st.session_state.ratings[prob_idx],
+                        'rater_id': rater_id
+                    })
+
+            if ratings_list:
+                df_download = pd.DataFrame(ratings_list)
+                csv = df_download.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Your Ratings (CSV)",
+                    data=csv,
+                    file_name=f"{rater_id}_ratings_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
             return
 
     # Current problem
     current_idx = st.session_state.current_index
     problem = problems_df.iloc[current_idx]
 
-    # Main content - compact layout
+    # Main content
     st.markdown(f"## Problem {current_idx + 1} of {total_problems}")
 
-    # Question display - more compact
+    # Question display
     st.info(f"**{problem['question_id']}:** {problem['question_text']}\n\n**Response options:** {problem['response_options']}")
 
-    # Problem description - more compact
+    # Problem description
     st.warning(f"**Problem Identified:** {problem['problem_description']}")
 
     # Rating interface
     st.markdown("**How would you rate the severity of this problem?**")
 
     # Get existing rating if any
-    existing_rating = get_rating_for_problem(current_idx, rater_id)
+    existing_rating = st.session_state.ratings.get(current_idx)
 
     # Create rating buttons
     cols = st.columns(5)
@@ -275,20 +178,17 @@ def main():
                 type=button_type
             ):
                 # Save rating
-                with st.spinner("Saving..."):
-                    result = save_rating(current_idx, problem['question_id'], rating_num, rater_id)
+                st.session_state.ratings[current_idx] = rating_num
 
-                if result is not None:
-                    st.success(f"✅ Rated as: {rating_num}")
-
-                    # Auto-advance to next problem (within assigned problems)
-                    current_position = assigned_problems.index(current_idx)
-                    if current_position < len(assigned_problems) - 1:
-                        st.session_state.current_index = assigned_problems[current_position + 1]
-                        st.rerun()
-                    else:
-                        st.balloons()
-                        st.success(f"🎉 All your assigned problems rated! ({num_assigned} problems)")
+                # Auto-advance to next problem
+                current_position = assigned_problems.index(current_idx)
+                if current_position < len(assigned_problems) - 1:
+                    st.session_state.current_index = assigned_problems[current_position + 1]
+                    st.rerun()
+                else:
+                    st.balloons()
+                    st.success(f"🎉 All your assigned problems rated! ({num_assigned} problems)")
+                    st.rerun()
 
             st.caption(rating_label)
 
@@ -296,7 +196,7 @@ def main():
     if existing_rating:
         st.success(f"✅ Current rating: **{existing_rating}** - {RATING_SCALE[existing_rating]}")
 
-    # Navigation buttons at bottom (within assigned problems)
+    # Navigation buttons at bottom
     col1, col2, col3 = st.columns([1, 2, 1])
 
     current_position = assigned_problems.index(current_idx)
@@ -313,10 +213,37 @@ def main():
             st.session_state.current_index = assigned_problems[current_position + 1]
             st.rerun()
 
-    # Show progress in sidebar
+    # Progress in sidebar
     st.sidebar.markdown("---")
     st.sidebar.metric("Your Progress", f"{num_rated} / {num_assigned}")
     st.sidebar.progress(num_rated / num_assigned if num_assigned > 0 else 0)
+
+    # Download button in sidebar (even if not finished)
+    st.sidebar.markdown("---")
+    if num_rated > 0:
+        st.sidebar.markdown("### Download Ratings")
+
+        ratings_list = []
+        for prob_idx in assigned_problems:
+            if prob_idx in st.session_state.ratings:
+                problem = problems_df.iloc[prob_idx]
+                ratings_list.append({
+                    'problem_index': prob_idx,
+                    'question_id': problem['question_id'],
+                    'rating': st.session_state.ratings[prob_idx],
+                    'rater_id': rater_id
+                })
+
+        if ratings_list:
+            df_download = pd.DataFrame(ratings_list)
+            csv = df_download.to_csv(index=False)
+            st.sidebar.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"{rater_id}_ratings_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+            st.sidebar.caption(f"{num_rated} rating(s) ready to download")
 
 if __name__ == "__main__":
     main()
