@@ -93,11 +93,6 @@ def main():
     num_rated = len([p for p in assigned_problems if p in st.session_state.ratings])
     num_assigned = len(assigned_problems)
 
-    # Warning about session storage and periodic reminders
-    if num_rated == 0:
-        st.sidebar.warning("⚠️ **Important:** Download your ratings regularly! If the app refreshes, you'll lose unsaved progress.")
-    elif num_rated > 0 and num_rated % 20 == 0:
-        st.sidebar.info(f"💾 You've rated {num_rated} problems. Consider downloading your CSV as a backup!")
 
     # Navigation
     st.sidebar.subheader("Navigation")
