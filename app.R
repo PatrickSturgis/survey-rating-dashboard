@@ -1,24 +1,9 @@
 library(shiny)
-library(rdrop2)
 
 # --- Global setup ---
 PROBLEMS_FILE <- "adjudication_export.csv"
-RATINGS_DIR <- "ratings"
-DROPBOX_DIR <- "survey_ratings"
-dir.create(RATINGS_DIR, showWarnings = FALSE)
-
-# Authenticate with Dropbox (token saved locally after first interactive auth)
-TOKEN_FILE <- "dropbox_token.rds"
-if (file.exists(TOKEN_FILE)) {
-  drop_auth(rdstoken = TOKEN_FILE)
-} else {
-  # First run only: interactive auth, then save token
-  token <- drop_auth()
-  saveRDS(token, TOKEN_FILE)
-}
-
-# Ensure Dropbox folder exists
-tryCatch(drop_dir(DROPBOX_DIR), error = function(e) drop_create(DROPBOX_DIR))
+RATINGS_DIR <- file.path(path.expand("~/Dropbox (Personal)/AI in surveys"), "survey_ratings")
+dir.create(RATINGS_DIR, showWarnings = FALSE, recursive = TRUE)
 
 problems_df <- read.csv(PROBLEMS_FILE, stringsAsFactors = FALSE)
 TOTAL_PROBLEMS <- nrow(problems_df)
@@ -34,39 +19,28 @@ RATING_SCALE <- c(
 )
 
 load_ratings <- function(rater_id) {
-  local_path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
-  dropbox_path <- file.path(DROPBOX_DIR, paste0(rater_id, ".csv"))
-  # Try to download from Dropbox first
+  path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
   tryCatch({
-    drop_download(dropbox_path, local_path = local_path, overwrite = TRUE)
-  }, error = function(e) {
-    # File doesn't exist on Dropbox yet
-  })
-  tryCatch({
-    if (file.exists(local_path) && file.size(local_path) > 0) {
-      df <- read.csv(local_path, stringsAsFactors = FALSE)
+    if (file.exists(path) && file.size(path) > 0) {
+      df <- read.csv(path, stringsAsFactors = FALSE)
       if (nrow(df) > 0 && "rating" %in% names(df) && "row_index" %in% names(df)) {
         return(setNames(df$rating, as.character(df$row_index)))
       }
     }
   }, error = function(e) {
-    # Malformed file, start fresh
   })
   return(setNames(integer(0), character(0)))
 }
 
 save_ratings <- function(rater_id, ratings) {
-  local_path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
-  dropbox_path <- DROPBOX_DIR
+  path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
   if (length(ratings) > 0) {
     df <- data.frame(
       row_index = as.integer(names(ratings)),
       rating = as.integer(ratings),
       stringsAsFactors = FALSE
     )
-    write.csv(df, local_path, row.names = FALSE)
-    # Upload to Dropbox
-    drop_upload(local_path, path = dropbox_path)
+    write.csv(df, path, row.names = FALSE)
   }
 }
 
