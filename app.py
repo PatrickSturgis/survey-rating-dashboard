@@ -23,6 +23,8 @@ RATING_SCALE = {
     5: "Very significant problem, modification essential"
 }
 
+RATERS = ["Tom", "Caroline", "Becky", "Alice", "Patrick"]
+
 def load_problems():
     """Load the problems CSV"""
     return pd.read_csv(PROBLEMS_FILE)
@@ -33,19 +35,10 @@ def main():
     # Load data
     problems_df = load_problems()
     total_problems = len(problems_df)
+    assigned_problems = list(range(total_problems))
 
     # Sidebar for rater ID and navigation
     st.sidebar.title("Rating Dashboard")
-
-    # Rater assignment
-    RATER_ASSIGNMENTS = {
-        "Tom": "first_half",
-        "Caroline": "first_half",
-        "Becky": "second_half",
-        "Alice": "second_half",
-        "Patrick - First Half": "first_half",
-        "Patrick - Second Half": "second_half"
-    }
 
     # Rater ID dropdown
     if 'rater_id' not in st.session_state:
@@ -53,8 +46,8 @@ def main():
 
     rater_id = st.sidebar.selectbox(
         "Select your name:",
-        options=[""] + list(RATER_ASSIGNMENTS.keys()),
-        help="Select your name to begin rating your assigned problems"
+        options=[""] + RATERS,
+        help="Select your name to begin rating"
     )
 
     if rater_id:
@@ -63,50 +56,27 @@ def main():
         st.warning("⚠️ Please select your name in the sidebar to begin rating.")
         return
 
+    st.sidebar.info(f"📋 {total_problems} problems to rate")
+
     # Initialize ratings storage in session state
     if 'ratings' not in st.session_state:
         st.session_state.ratings = {}
 
-    # Get assignment for this rater
-    assignment = RATER_ASSIGNMENTS[rater_id]
-    half_point = total_problems // 2
-
-    if assignment == "first_half":
-        assigned_problems = list(range(0, half_point))
-        st.sidebar.info(f"📋 You are assigned problems 1-{half_point} (first half)")
-    elif assignment == "second_half":
-        assigned_problems = list(range(half_point, total_problems))
-        st.sidebar.info(f"📋 You are assigned problems {half_point + 1}-{total_problems} (second half)")
-    else:  # "all"
-        assigned_problems = list(range(0, total_problems))
-        st.sidebar.info(f"📋 You are assigned ALL problems (1-{total_problems})")
-
     # Initialize current problem index
     if 'current_index' not in st.session_state:
-        st.session_state.current_index = assigned_problems[0]
-
-    # Ensure current index is within assigned problems
-    if st.session_state.current_index not in assigned_problems:
-        st.session_state.current_index = assigned_problems[0]
+        st.session_state.current_index = 0
 
     # Progress tracking
     num_rated = len([p for p in assigned_problems if p in st.session_state.ratings])
-    num_assigned = len(assigned_problems)
-
 
     # Navigation
     st.sidebar.subheader("Navigation")
 
-    # Jump to problem
-    min_problem = assigned_problems[0] + 1
-    max_problem = assigned_problems[-1] + 1
-    current_problem_num = st.session_state.current_index + 1
-
     jump_to = st.sidebar.number_input(
-        f"Jump to problem ({min_problem}-{max_problem}):",
-        min_value=min_problem,
-        max_value=max_problem,
-        value=current_problem_num
+        f"Jump to problem (1-{total_problems}):",
+        min_value=1,
+        max_value=total_problems,
+        value=st.session_state.current_index + 1
     )
     if st.sidebar.button("Go"):
         st.session_state.current_index = jump_to - 1
@@ -122,10 +92,9 @@ def main():
             if st.session_state.current_index not in unrated_indices:
                 st.session_state.current_index = unrated_indices[0]
         else:
-            st.success(f"🎉 All your assigned problems have been rated! ({num_assigned} problems)")
+            st.success(f"🎉 All {total_problems} problems have been rated!")
             st.info("👇 Download your ratings below!")
 
-            # Show download button
             ratings_list = []
             for prob_idx in assigned_problems:
                 if prob_idx in st.session_state.ratings:
@@ -133,6 +102,8 @@ def main():
                     ratings_list.append({
                         'problem_index': prob_idx,
                         'question_id': problem['question_id'],
+                        'source': problem.get('source', ''),
+                        'code_label': problem.get('code_label', ''),
                         'rating': st.session_state.ratings[prob_idx],
                         'rater_id': rater_id
                     })
@@ -159,8 +130,9 @@ def main():
     # Question display
     st.info(f"**{problem['question_id']}:** {problem['question_text']}\n\n**Response options:** {problem['response_options']}")
 
-    # Problem description
-    st.warning(f"**Problem Identified:** {problem['problem_description']}")
+    # Problem code and description (source model hidden from raters)
+    label = problem.get('code_label', '')
+    st.warning(f"**{label}**\n\n{problem['problem_description']}")
 
     # Rating interface
     st.markdown("**How would you rate the severity of this problem?**")
@@ -180,17 +152,15 @@ def main():
                 use_container_width=True,
                 type=button_type
             ):
-                # Save rating
                 st.session_state.ratings[current_idx] = rating_num
 
-                # Auto-advance to next problem
                 current_position = assigned_problems.index(current_idx)
                 if current_position < len(assigned_problems) - 1:
                     st.session_state.current_index = assigned_problems[current_position + 1]
                     st.rerun()
                 else:
                     st.balloons()
-                    st.success(f"🎉 All your assigned problems rated! ({num_assigned} problems)")
+                    st.success(f"🎉 All {total_problems} problems rated!")
                     st.rerun()
 
             st.caption(rating_label)
@@ -218,10 +188,10 @@ def main():
 
     # Progress in sidebar
     st.sidebar.markdown("---")
-    st.sidebar.metric("Your Progress", f"{num_rated} / {num_assigned}")
-    st.sidebar.progress(num_rated / num_assigned if num_assigned > 0 else 0)
+    st.sidebar.metric("Progress", f"{num_rated} / {total_problems}")
+    st.sidebar.progress(num_rated / total_problems if total_problems > 0 else 0)
 
-    # Download button in sidebar (even if not finished)
+    # Download button in sidebar
     st.sidebar.markdown("---")
     if num_rated > 0:
         st.sidebar.markdown("### Download Ratings")
@@ -233,6 +203,8 @@ def main():
                 ratings_list.append({
                     'problem_index': prob_idx,
                     'question_id': problem['question_id'],
+                    'source': problem.get('source', ''),
+                    'code_label': problem.get('code_label', ''),
                     'rating': st.session_state.ratings[prob_idx],
                     'rater_id': rater_id
                 })
