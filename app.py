@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 
 # File paths
-PROBLEMS_FILE = 'problems.csv'
+PROBLEMS_FILE = 'adjudication_export.csv'
 
 # Rating scale
 RATING_SCALE = {
@@ -58,16 +58,20 @@ def main():
 
     st.sidebar.info(f"📋 {total_problems} problems to rate")
 
-    # Initialize ratings storage in session state
+    # Initialize ratings storage in session state (keyed by rater)
     if 'ratings' not in st.session_state:
         st.session_state.ratings = {}
+    if rater_id not in st.session_state.ratings:
+        st.session_state.ratings[rater_id] = {}
+
+    rater_ratings = st.session_state.ratings[rater_id]
 
     # Initialize current problem index
     if 'current_index' not in st.session_state:
         st.session_state.current_index = 0
 
     # Progress tracking
-    num_rated = len([p for p in assigned_problems if p in st.session_state.ratings])
+    num_rated = len([p for p in assigned_problems if p in rater_ratings])
 
     # Navigation
     st.sidebar.subheader("Navigation")
@@ -87,7 +91,7 @@ def main():
 
     # Filter to unrated problems if requested
     if show_unrated_only:
-        unrated_indices = [i for i in assigned_problems if i not in st.session_state.ratings]
+        unrated_indices = [i for i in assigned_problems if i not in rater_ratings]
         if unrated_indices:
             if st.session_state.current_index not in unrated_indices:
                 st.session_state.current_index = unrated_indices[0]
@@ -97,14 +101,15 @@ def main():
 
             ratings_list = []
             for prob_idx in assigned_problems:
-                if prob_idx in st.session_state.ratings:
+                if prob_idx in rater_ratings:
                     problem = problems_df.iloc[prob_idx]
                     ratings_list.append({
-                        'problem_index': prob_idx,
+                        'id': problem['id'],
+                        'set': problem.get('set', ''),
                         'question_id': problem['question_id'],
-                        'source': problem.get('source', ''),
-                        'code_label': problem.get('code_label', ''),
-                        'rating': st.session_state.ratings[prob_idx],
+                        'config': problem.get('config', ''),
+                        'theme': problem.get('theme', ''),
+                        'rating': rater_ratings[prob_idx],
                         'rater_id': rater_id
                     })
 
@@ -128,17 +133,18 @@ def main():
     st.markdown(f"## Problem {current_idx + 1} of {total_problems}")
 
     # Question display
-    st.info(f"**{problem['question_id']}:** {problem['question_text']}\n\n**Response options:** {problem['response_options']}")
+    question_label = problem.get('question_label', '')
+    st.info(f"**{problem['question_id']}** — {question_label}\n\n{problem['question_text']}\n\n**Response scale:** {problem['response_scale']}")
 
-    # Problem code and description (source model hidden from raters)
-    label = problem.get('code_label', '')
-    st.warning(f"**{label}**\n\n{problem['problem_description']}")
+    # Problem theme and description (config hidden from raters)
+    theme = problem.get('theme', '')
+    st.warning(f"**{theme}**\n\n{problem['problem_description']}")
 
     # Rating interface
     st.markdown("**How would you rate the severity of this problem?**")
 
     # Get existing rating if any
-    existing_rating = st.session_state.ratings.get(current_idx)
+    existing_rating = rater_ratings.get(current_idx)
 
     # Create rating buttons
     cols = st.columns(5)
@@ -152,7 +158,7 @@ def main():
                 use_container_width=True,
                 type=button_type
             ):
-                st.session_state.ratings[current_idx] = rating_num
+                rater_ratings[current_idx] = rating_num
 
                 current_position = assigned_problems.index(current_idx)
                 if current_position < len(assigned_problems) - 1:
@@ -198,14 +204,15 @@ def main():
 
         ratings_list = []
         for prob_idx in assigned_problems:
-            if prob_idx in st.session_state.ratings:
+            if prob_idx in rater_ratings:
                 problem = problems_df.iloc[prob_idx]
                 ratings_list.append({
-                    'problem_index': prob_idx,
+                    'id': problem['id'],
+                    'set': problem.get('set', ''),
                     'question_id': problem['question_id'],
-                    'source': problem.get('source', ''),
-                    'code_label': problem.get('code_label', ''),
-                    'rating': st.session_state.ratings[prob_idx],
+                    'config': problem.get('config', ''),
+                    'theme': problem.get('theme', ''),
+                    'rating': rater_ratings[prob_idx],
                     'rater_id': rater_id
                 })
 
