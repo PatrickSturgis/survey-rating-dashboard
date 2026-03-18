@@ -1,3 +1,6 @@
 dropbox_token.rds
 ratings/
 .httr-oauth
+service-account-key.json
+streamlit-ratings-*.json
+.Renviron

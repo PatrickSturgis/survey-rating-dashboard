@@ -1,14 +1,19 @@
 library(shiny)
+library(googlesheets4)
 
 # --- Global setup ---
 PROBLEMS_FILE <- "adjudication_export.csv"
-RATINGS_DIR <- file.path(path.expand("~/Dropbox (Personal)/AI in surveys"), "survey_ratings")
-dir.create(RATINGS_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# Google Sheets auth via service account key
+gs4_auth(path = "service-account-key.json")
+
+# Google Sheet ID — set this after creating the sheet
+SHEET_ID <- Sys.getenv("SURVEY_SHEET_ID", "1db_LGDpCv_QJ4UEOpODvh0qN3jTddZYu-IcfDDzktfo")
 
 problems_df <- read.csv(PROBLEMS_FILE, stringsAsFactors = FALSE)
 TOTAL_PROBLEMS <- nrow(problems_df)
 
-RATERS <- c("Tom", "Caroline", "Becky", "Alice", "Patrick", "Bob")
+RATERS <- c("Tom", "Caroline", "Becky", "Alice", "Patrick")
 
 RATING_SCALE <- c(
   "1" = "Not a problem at all",
@@ -19,28 +24,44 @@ RATING_SCALE <- c(
 )
 
 load_ratings <- function(rater_id) {
-  path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
   tryCatch({
-    if (file.exists(path) && file.size(path) > 0) {
-      df <- read.csv(path, stringsAsFactors = FALSE)
-      if (nrow(df) > 0 && "rating" %in% names(df) && "row_index" %in% names(df)) {
-        return(setNames(df$rating, as.character(df$row_index)))
-      }
+    df <- read_sheet(SHEET_ID, sheet = rater_id)
+    if (nrow(df) > 0 && "rating" %in% names(df) && "row_index" %in% names(df)) {
+      return(setNames(as.integer(df$rating), as.character(df$row_index)))
     }
   }, error = function(e) {
+    # Sheet tab doesn't exist yet — create it
+    tryCatch({
+      sheet_add(SHEET_ID, sheet = rater_id)
+      range_write(SHEET_ID,
+        data = data.frame(row_index = integer(0), rating = integer(0)),
+        sheet = rater_id
+      )
+    }, error = function(e2) {
+    })
   })
   return(setNames(integer(0), character(0)))
 }
 
 save_ratings <- function(rater_id, ratings) {
-  path <- file.path(RATINGS_DIR, paste0(rater_id, ".csv"))
   if (length(ratings) > 0) {
     df <- data.frame(
       row_index = as.integer(names(ratings)),
       rating = as.integer(ratings),
       stringsAsFactors = FALSE
     )
-    write.csv(df, path, row.names = FALSE)
+    tryCatch({
+      range_clear(SHEET_ID, sheet = rater_id)
+      range_write(SHEET_ID, data = df, sheet = rater_id)
+    }, error = function(e) {
+      # If sheet doesn't exist, create and write
+      tryCatch({
+        sheet_add(SHEET_ID, sheet = rater_id)
+        range_write(SHEET_ID, data = df, sheet = rater_id)
+      }, error = function(e2) {
+        warning(paste("Failed to save ratings for", rater_id, ":", e2$message))
+      })
+    })
   }
 }
 

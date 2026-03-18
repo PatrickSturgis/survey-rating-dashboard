@@ -1,0 +1,10 @@
+name: survey-rating-dashboard
+title:
+username: sturgis
+account: sturgis
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 16922669
+bundleId: 11723117
+url: https://sturgis.shinyapps.io/survey-rating-dashboard/
+version: 1
